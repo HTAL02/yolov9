@@ -119,14 +119,17 @@ class Prediction():
         # vid_path, vid_writer = [None] * bs, [None] * bs
 
         # Run inference
+        print(f'image size : {self.imgsz}')
         self.model.warmup(imgsz=(1 if self.pt else bs, 3, *self.imgsz))  # warmup
         seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
         # print(f'dateset : {vars(dataset)}')
         # for path, im, im0s, vid_cap, s in dataset:
         s = ''
         im = letterbox(frame, self.imgsz, stride=self.stride, auto=self.pt)[0]  # padded resize
+        print(f'im shape : {im.shape}')
         im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         im = np.ascontiguousarray(im)
+        print(f'im shape : {im.shape}')
         print(im.shape)
         with dt[0]:
             im = torch.from_numpy(im).to(self.model.device) #.permute(2, 0, 1).float().div(255.0).unsqueeze(0)
@@ -139,6 +142,11 @@ class Prediction():
         with dt[1]:
             # visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if visualize else False
             pred, proto = self.model(im, augment=self.augment, visualize=self.visualize)[:2]
+            if isinstance(proto, tuple):
+                print(f'proto type : {type(proto)}, length : {len(proto)}')
+                print(f'pred shape : {pred.shape}')
+            else :
+                print(f'proto shape : {proto.shape}, pred shape : {pred.shape}')
 
         # NMS
         with dt[2]:
@@ -270,6 +278,7 @@ class Prediction():
             strip_optimizer(self.weights[0])  # update model (to fix SourceChangeWarning)
 
         return Results(original_img=frame, names=self.names, boxes=det, masks=masks, original_shape=frame.shape[:2])
+
 
 def run(
     weights=ROOT / 'yolo-seg.pt',  # model.pt path(s)

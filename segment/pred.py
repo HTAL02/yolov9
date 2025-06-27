@@ -24,6 +24,8 @@ from utils.augmentations import letterbox
 from utils.segment.general import scale_image
 from segment.results import Results
 import numpy as np
+
+torch.set_num_threads(4)
     
 @smart_inference_mode()
 class Prediction():
@@ -132,6 +134,7 @@ class Prediction():
         print(f'im shape : {im.shape}')
         print(im.shape)
         with dt[0]:
+            # torch.set_num_threads(4)
             im = torch.from_numpy(im).to(self.model.device) #.permute(2, 0, 1).float().div(255.0).unsqueeze(0)
             im = im.half() if self.model.fp16 else im.float()  # uint8 to fp16/32
             im /= 255  # 0 - 255 to 0.0 - 1.0

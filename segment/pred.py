@@ -25,7 +25,7 @@ from utils.segment.general import scale_image
 from segment.results import Results
 import numpy as np
 
-torch.set_num_threads(4)
+# torch.set_num_threads(4)
     
 @smart_inference_mode()
 class Prediction():

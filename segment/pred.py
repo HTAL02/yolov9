@@ -145,11 +145,11 @@ class Prediction():
         with dt[1]:
             # visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if visualize else False
             pred, proto = self.model(im, augment=self.augment, visualize=self.visualize)[:2]
-            if isinstance(proto, tuple):
-                print(f'proto type : {type(proto)}, length : {len(proto)}')
-                print(f'pred shape : {pred.shape}')
-            else :
-                print(f'proto shape : {proto.shape}, pred shape : {pred.shape}')
+            # if isinstance(proto, tuple):
+            #     print(f'proto type : {type(proto)}, length : {len(proto)}')
+            #     print(f'pred shape : {pred.shape}')
+            # else :
+            #     print(f'proto shape : {proto.shape}, pred shape : {pred.shape}')
 
         # NMS
         with dt[2]:

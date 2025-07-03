@@ -1,7 +1,6 @@
 from utils.segment.general import masks2segments
 from utils.general import scale_segments
 from utils.plots import Annotator, colors
-from utils.augmentations import letterbox
 from copy import deepcopy
 import cv2
 import numpy as np

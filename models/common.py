@@ -21,6 +21,7 @@ import torch.nn as nn
 from IPython.display import display
 from PIL import Image
 from torch.cuda import amp
+import ncnn
 
 from utils import TryExcept
 from utils.dataloaders import exif_transpose, letterbox
@@ -690,11 +691,12 @@ class DetectMultiBackend(nn.Module):
         #   TensorFlow Lite:                *.tflite
         #   TensorFlow Edge TPU:            *_edgetpu.tflite
         #   PaddlePaddle:                   *_paddle_model
+        #   Ncnn:                           *_ncnn_model
         from models.experimental import attempt_download, attempt_load  # scoped to avoid circular import
 
         super().__init__()
         w = str(weights[0] if isinstance(weights, list) else weights)
-        pt, jit, onnx, onnx_end2end, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs, paddle, triton = self._model_type(w)
+        pt, jit, onnx, onnx_end2end, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs, paddle, ncnn_model ,triton= self._model_type(w)
         fp16 &= pt or jit or onnx or engine  # FP16
         nhwc = coreml or saved_model or pb or tflite or edgetpu  # BHWC formats (vs torch BCWH)
         stride = 32  # default stride
@@ -853,6 +855,18 @@ class DetectMultiBackend(nn.Module):
             from utils.triton import TritonRemoteModel
             model = TritonRemoteModel(url=w)
             nhwc = model.runtime.startswith("tensorflow")
+        elif ncnn_model:  # Ncnn
+            LOGGER.info(f'Loading {w} for Ncnn inference...')
+            # check_requirements('ncnn', 'pnnx')
+
+            net = ncnn.Net()
+            net.opt.use_vulkan_compute = True if cuda else False
+            net.opt.num_threads = 2
+
+            param_path = next(Path(w).rglob('*.ncnn.param'))  # get *.ncnn.param file from *_ncnn_model dir
+            bin_path = next(Path(w).rglob('*.ncnn.bin'))  # get *.ncnn.bin file from *_ncnn_model dir
+            net.load_param(str(param_path))
+            net.load_model(str(bin_path))
         else:
             raise NotImplementedError(f'ERROR: {w} is not a supported format')
 
@@ -917,6 +931,22 @@ class DetectMultiBackend(nn.Module):
             y = [self.predictor.get_output_handle(x).copy_to_cpu() for x in self.output_names]
         elif self.triton:  # NVIDIA Triton Inference Server
             y = self.model(im)
+        elif self.ncnn_model:  # Ncnn
+            im = ncnn.Mat.from_pixels(np.asarray(im), ncnn.Mat.PixelType.PIXEL_BGR, w, h)
+            
+            # Normalize the image
+            mean = [0,0,0]
+            std = [1/255,1/255,1/255]
+            im.substract_mean_normalize(mean=mean, norm=std)
+
+            ex = self.net.create_extractor()
+            ex.input("in0", im)
+            y = []
+            _, out0 = ex.extract("out0")
+            y.append(np.expand_dims(np.array(out0),axis=0))
+            _, out1 = ex.extract("out1")
+            y.append(np.expand_dims(np.array(out1),axis=0))
+    
         else:  # TensorFlow (SavedModel, GraphDef, Lite, Edge TPU)
             im = im.cpu().numpy()
             if self.saved_model:  # SavedModel
@@ -951,16 +981,16 @@ class DetectMultiBackend(nn.Module):
 
     def warmup(self, imgsz=(1, 3, 640, 640)):
         # Warmup model by running inference once
-        warmup_types = self.pt, self.jit, self.onnx, self.engine, self.saved_model, self.pb, self.triton
+        warmup_types = self.pt, self.jit, self.onnx, self.engine, self.saved_model, self.pb, self.triton, self.ncnn_model
         if any(warmup_types) and (self.device.type != 'cpu' or self.triton):
             im = torch.empty(*imgsz, dtype=torch.half if self.fp16 else torch.float, device=self.device)  # input
             for _ in range(2 if self.jit else 1):  #
                 self.forward(im)  # warmup
 
     @staticmethod
-    def _model_type(p='path/to/model.pt'):
+    def  _model_type(p='path/to/model.pt'):
         # Return model type from model path, i.e. path='path/to/model.onnx' -> type=onnx
-        # types = [pt, jit, onnx, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs, paddle]
+        # types = [pt, jit, onnx, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs, paddle, ncnn_model]
         from export import export_formats
         from utils.downloads import is_url
         sf = list(export_formats().Suffix)  # export suffixes

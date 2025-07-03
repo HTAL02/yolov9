@@ -47,7 +47,7 @@ def export_formats():
         ['TensorFlow Edge TPU', 'edgetpu', '_edgetpu.tflite', False, False],
         ['TensorFlow.js', 'tfjs', '_web_model', False, False],
         ['PaddlePaddle', 'paddle', '_paddle_model', True, True],
-        ['Ncnn', 'ncnn_model', '_ncnn_model', True, True],]
+        ['Ncnn', 'ncnn', '_ncnn_model', True, True],]
     return pd.DataFrame(x, columns=['Format', 'Argument', 'Suffix', 'CPU', 'GPU'])
 
 
@@ -470,6 +470,48 @@ def export_tfjs(file, prefix=colorstr('TensorFlow.js:')):
         j.write(subst)
     return f, None
 
+@try_export
+def export_ncnn(file, half, device, batch, imgsz, prefix=colorstr('NCNN:')):
+    # YOLO NCNN export
+    
+    f = str(file).replace('.torchscript', f'_ncnn_model{os.sep}')  # NCNN model dir
+
+    check_requirements('pnnx')
+    ncnn_args = [
+        f"ncnnparam={f + '/model.ncnn.param'}",
+        f"ncnnbin={f + '/model.ncnn.bin'}",
+        f"ncnnpy={f + '/model_ncnn.py'}",
+    ]
+
+    pnnx_args = [
+        f"pnnxparam={f + '/model.pnnx.param'}",
+        f"pnnxbin={f + '/model.pnnx.bin'}",
+        f"pnnxpy={f + '/model_pnnx.py'}",
+        f"pnnxonnx={f + '/model.pnnx.onnx'}",
+    ]
+
+    cmd = [
+        str("pnnx"),
+        str(file),
+        *ncnn_args,
+        *pnnx_args,
+        f"fp16={int(half)}",
+        f"device={device.type}",
+        f'inputshape="{[batch, 3, *imgsz]}"',
+    ]
+    if not os.path.exists(f) :
+        os.makedirs(f)  # make ncnn_model directory
+    LOGGER.info(f"{prefix} running '{' '.join(cmd)}'")
+    subprocess.run(cmd, check=True)
+
+    # Remove debug files
+    pnnx_files = [x.rsplit("=", 1)[-1] for x in pnnx_args]
+    for f_debug in ("debug.bin", "debug.param", "debug2.bin", "debug2.param", *pnnx_files):
+        Path(f_debug).unlink(missing_ok=True)
+
+    return f, None
+    
+
 
 def add_tflite_metadata(file, metadata, num_outputs):
     # Add metadata to *.tflite models per https://www.tensorflow.org/lite/models/convert/metadata
@@ -534,7 +576,7 @@ def run(
     fmts = tuple(export_formats()['Argument'][1:])  # --include arguments
     flags = [x in include for x in fmts]
     assert sum(flags) == len(include), f'ERROR: Invalid --include {include}, valid --include arguments are {fmts}'
-    jit, onnx, onnx_end2end, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs, paddle = flags  # export booleans
+    jit, onnx, onnx_end2end, xml, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs, paddle, ncnn_model = flags  # export booleans
     file = Path(url2file(weights) if str(weights).startswith(('http:/', 'https:/')) else weights)  # PyTorch weights
 
     # Load PyTorch model
@@ -614,6 +656,15 @@ def run(
             f[9], _ = export_tfjs(file)
     if paddle:  # PaddlePaddle
         f[10], _ = export_paddle(model, im, file, metadata)
+    if ncnn_model:  # NCNN
+        # expot to torchscript first
+        if not str(file).endswith('.torchscript'):
+            f_ts, _ = export_torchscript(model, im, file, False)
+        else:
+            f_ts = file
+
+        # then export to ncnn
+        f[11], _ = export_ncnn((f_ts), half, device, batch_size, imgsz)
 
     # Finish
     f = [str(x) for x in f if x]  # filter out '' and None
@@ -664,7 +715,7 @@ def parse_opt():
         '--include',
         nargs='+',
         default=['torchscript'],
-        help='torchscript, onnx, onnx_end2end, openvino, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs, paddle')
+        help='torchscript, onnx, onnx_end2end, openvino, engine, coreml, saved_model, pb, tflite, edgetpu, tfjs, paddle, ncnn')
     opt = parser.parse_args()
 
     if 'onnx_end2end' in opt.include:  

@@ -860,8 +860,8 @@ class DetectMultiBackend(nn.Module):
             # check_requirements('ncnn', 'pnnx')
 
             net = ncnn.Net()
-            net.opt.use_vulkan_compute = True if cuda else False
-            net.opt.num_threads = 2
+            # net.opt.use_vulkan_compute = True if cuda else False
+            # net.opt.num_threads = 2
 
             param_path = next(Path(w).rglob('*.ncnn.param'))  # get *.ncnn.param file from *_ncnn_model dir
             bin_path = next(Path(w).rglob('*.ncnn.bin'))  # get *.ncnn.bin file from *_ncnn_model dir
@@ -932,6 +932,9 @@ class DetectMultiBackend(nn.Module):
         elif self.triton:  # NVIDIA Triton Inference Server
             y = self.model(im)
         elif self.ncnn_model:  # Ncnn
+            cuda = torch.cuda.is_available() and self.device.type != 'cpu'  # cuda eneble
+            if cuda:
+                im = im.cpu().numpy()
             im = ncnn.Mat.from_pixels(np.asarray(im), ncnn.Mat.PixelType.PIXEL_BGR, w, h)
             
             # Normalize the image

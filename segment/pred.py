@@ -86,9 +86,9 @@ class Prediction():
         self.retina_masks = False
 
         self.model = DetectMultiBackend(self.weights, device=self.device, dnn=self.dnn, data=self.data, fp16=self.half)
-        self.stride, self.names, self.pt = self.model.stride, self.model.names, self.model.pt
+        self.stride, self.names, self.pt, self.ncnn = self.model.stride, self.model.names, self.model.pt, self.model.ncnn_model
         self.imgsz = check_img_size(self.imgsz, s=self.stride)  # check image size
-        print(f'imgsz : {self.imgsz}, {self.stride}')
+        print(f'imgsz : {self.imgsz}, {self.stride},pt :{self.pt}, ncnn :{self.ncnn}')
 
     def run(self, frame):
         print(frame.shape)
@@ -144,6 +144,7 @@ class Prediction():
         # Inference
         with dt[1]:
             # visualize = increment_path(save_dir / Path(path).stem, mkdir=True) if visualize else False
+
             pred, proto = self.model(im, augment=self.augment, visualize=self.visualize)[:2]
             # if isinstance(proto, tuple):
             #     print(f'proto type : {type(proto)}, length : {len(proto)}')

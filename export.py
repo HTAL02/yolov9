@@ -471,7 +471,7 @@ def export_tfjs(file, prefix=colorstr('TensorFlow.js:')):
     return f, None
 
 @try_export
-def export_ncnn(file, half, device, batch, imgsz, prefix=colorstr('NCNN:')):
+def export_ncnn(file, half, device, batch, imgsz, metadata, prefix=colorstr('NCNN:')):
     # YOLO NCNN export
     
     f = str(file).replace('.torchscript', f'_ncnn_model{os.sep}')  # NCNN model dir
@@ -508,6 +508,8 @@ def export_ncnn(file, half, device, batch, imgsz, prefix=colorstr('NCNN:')):
     pnnx_files = [x.rsplit("=", 1)[-1] for x in pnnx_args]
     for f_debug in ("debug.bin", "debug.param", "debug2.bin", "debug2.param", *pnnx_files):
         Path(f_debug).unlink(missing_ok=True)
+
+    yaml_save(Path(f + '/config.yaml'), metadata)  # add metadata.yaml
 
     return f, None
     
@@ -664,7 +666,7 @@ def run(
             f_ts = file
 
         # then export to ncnn
-        f[11], _ = export_ncnn((f_ts), half, device, batch_size, imgsz)
+        f[11], _ = export_ncnn((f_ts), half, device, batch_size, imgsz, metadata)
 
     # Finish
     f = [str(x) for x in f if x]  # filter out '' and None

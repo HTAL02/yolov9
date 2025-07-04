@@ -828,7 +828,7 @@ class DetectMultiBackend(nn.Module):
             interpreter.allocate_tensors()  # allocate
             input_details = interpreter.get_input_details()  # inputs
             output_details = interpreter.get_output_details()  # outputs
-            # load metadata
+            # load metadata0
             with contextlib.suppress(zipfile.BadZipFile):
                 with zipfile.ZipFile(w, "r") as model:
                     meta_file = model.namelist()[0]
@@ -867,6 +867,9 @@ class DetectMultiBackend(nn.Module):
             bin_path = next(Path(w).rglob('*.ncnn.bin'))  # get *.ncnn.bin file from *_ncnn_model dir
             net.load_param(str(param_path))
             net.load_model(str(bin_path))
+            
+            stride, names = self._load_metadata(Path(w + '/config').with_suffix('.yaml'))  # load metadata
+
         else:
             raise NotImplementedError(f'ERROR: {w} is not a supported format')
 
@@ -935,20 +938,22 @@ class DetectMultiBackend(nn.Module):
             cuda = torch.cuda.is_available() and self.device.type != 'cpu'  # cuda eneble
             if cuda:
                 im = im.cpu().numpy()
-            im = ncnn.Mat.from_pixels(np.asarray(im), ncnn.Mat.PixelType.PIXEL_BGR, w, h)
+
+            # im = ncnn.Mat.from_pixels(np.asarray(im[0]), ncnn.Mat.PixelType.PIXEL_BGR, h, w)
+            im =  ncnn.Mat(im.squeeze(0).numpy()).clone()
             
-            # Normalize the image
-            mean = [0,0,0]
-            std = [1/255,1/255,1/255]
-            im.substract_mean_normalize(mean=mean, norm=std)
+            # # Normalize the image
+            # mean = [0,0,0]
+            # std = [1/255,1/255,1/255]
+            # im.substract_mean_normalize(mean=mean, norm=std)
 
             ex = self.net.create_extractor()
             ex.input("in0", im)
             y = []
             _, out0 = ex.extract("out0")
-            y.append(np.expand_dims(np.array(out0),axis=0))
+            y.append(torch.from_numpy(np.array(out0)).unsqueeze(0))
             _, out1 = ex.extract("out1")
-            y.append(np.expand_dims(np.array(out1),axis=0))
+            y.append(torch.from_numpy(np.array(out1)).unsqueeze(0))
     
         else:  # TensorFlow (SavedModel, GraphDef, Lite, Edge TPU)
             im = im.cpu().numpy()

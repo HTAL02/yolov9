@@ -25,13 +25,21 @@ def test_inference(frame):
     # in0 = cv2.resize(in0, imgsz)
     scaled_img = letterbox(in0, imgsz, stride=32, auto=False)[0] 
     # in0 = cv2.cvtColor(in0, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB
-    # in0 = in0.transpose((2, 0, 1))[::-1]
-    # in0 = np.ascontiguousarray(in0)
+    # scaled_img = scaled_img.transpose((2, 0, 1))[::-1]
+    # print(f"Scaled image shape: {scaled_img.shape}")
+    # scaled_img = scaled_img.transpose((2, 0, 1))[::-1]
+    # scaled_img = scaled_img.transpose((2, 0, 1))[::-1]
+
+    scaled_img = np.ascontiguousarray(scaled_img)
     # print(f"Input image shape: {in0.shape}")
-    # in0 = torch.from_numpy(in0.copy()).unsqueeze(0).float()  # Convert to tensor and add batch dimension
-    w, h = scaled_img.shape[:2]
+    # in0 = torch.from_numpy(in
+    # 0.copy()).unsqueeze(0).float()  # Convert to tensor and add batch dimension
+
     print(f"Scaled image shape: {scaled_img.shape}")
-    image = ncnn.Mat.from_pixels(np.asarray(scaled_img), ncnn.Mat.PixelType.PIXEL_BGR, w, h)
+    # image = scaled_img.copy()
+    # scaled_img = scaled_img.astype(np.float32)  # Convert to float32
+    # scaled_img /= 255
+    image = ncnn.Mat.from_pixels(np.asarray(scaled_img), ncnn.Mat.PixelType.PIXEL_BGR, *imgsz)
     mean = [0,0,0]
     std = [1/255,1/255,1/255]
     # Normalize the image
@@ -39,8 +47,8 @@ def test_inference(frame):
     out = []
 
     with ncnn.Net() as net:
-        net.load_param("models/yolov9_models/ncnn_5/best_furniture_person_seg.ncnn.param")
-        net.load_model("models/yolov9_models/ncnn_5/best_furniture_person_seg.ncnn.bin")
+        net.load_param("models/yolov9_models/best_furniture_person_seg_1_ncnn_model/model.ncnn.param")
+        net.load_model("models/yolov9_models/best_furniture_person_seg_1_ncnn_model/model.ncnn.bin")
 
         with net.create_extractor() as ex:
             ex.input("in0", image)
@@ -51,55 +59,61 @@ def test_inference(frame):
             out.append(torch.from_numpy(np.array(out1)).unsqueeze(0))
 
     if len(out) == 1:
-        return out[0]
+        return out[0], imgsz
     else:
-        return tuple(out)
+        return tuple(out), imgsz
 
 if __name__ == "__main__":
 
-    frame = cv2.imread('data/input/test_images/test_about_to_fall1.png')
+    # frame = cv2.imread('data/test_demo_10_03_2025/scenario_x1/output-1/image0.jpg')
+    cap = cv2.VideoCapture(0)
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-    start_time = dt.now()
-    result = test_inference(frame)
-    end_time = dt.now()
-    print(f"Inference time: {(end_time - start_time).total_seconds()} seconds")
-    if isinstance(result, tuple):
-        im = cv2.resize(frame, (640, 640))
+        start_time = dt.now()
+        result, imgsz = test_inference(frame)
+        end_time = dt.now()
+        # print(f"scaled image shape: {im.shape}")
+        print(f"Inference time: {(end_time - start_time).total_seconds()} seconds")
+        if isinstance(result, tuple):
+            # im = cv2.resize(frame, (640, 640))
 
-        for i, res in enumerate(result):
-            print(f"Output {i}: {res.shape}")
-        pred = non_max_suppression(result[0], conf_thres=0.5, iou_thres=0.7, nm=32, max_det=1000)
-        det = pred[0]
-        proto = result[1]
-        if len(proto) == 3:
-            proto = proto[2]
+            for i, res in enumerate(result):
+                print(f"Output {i}: {res.shape}")
+            pred = non_max_suppression(result[0], conf_thres=0.5, iou_thres=0.7, nm=32, max_det=1000)
+            det = pred[0]
+            proto = result[1]
+            if len(proto) == 3:
+                proto = proto[2]
+                
+            masks = process_mask(proto[0], det[:, 6:], det[:, :4], imgsz, upsample=True)  # HWC
+            det[:, :4] = scale_boxes(imgsz, det[:, :4], frame.shape).round()  # rescale boxes to im0 size
             
-        masks = process_mask(proto[0], det[:, 6:], det[:, :4], im.shape[:2], upsample=True)  # HWC
-        det[:, :4] = scale_boxes(im.shape[:2], det[:, :4], frame.shape).round()  # rescale boxes to im0 size
-        
-        print(f'mask shape : {masks.shape}')
-        # det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], frame.shape).round()  # rescale boxes to im0 size
-        print(f"Processed {len(det)} detections, shape: {det.shape}")
-        print(f"Detection results: {det[:, :6]}")
+            print(f'mask shape : {masks.shape}')
+            # det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], frame.shape).round()  # rescale boxes to im0 size
+            print(f"Processed {len(det)} detections, shape: {det.shape}")
+            print(f"Detection results: {det[:, :6]}")
 
-        mask = Masks(masks, frame.shape[:2])
-        for i, res in enumerate(det):
-            x, y, w, h, conf, cls = res[:6]
-            x1, y1, x2, y2 = x , y  , w , h
-            
-            # draw rectangle on the image
-            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-            cv2.putText(frame, f"{int(cls)}: {conf:.2f}", (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            # draw the mask with fillpolygon
-            m = mask[i].xy
+            mask = Masks(masks, frame.shape[:2])
+            for i, res in enumerate(det):
+                x, y, w, h, conf, cls = res[:6]
+                x1, y1, x2, y2 = x , y  , w , h
+                
+                # draw rectangle on the image
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+                cv2.putText(frame, f"{int(cls)}: {conf:.2f}", (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                # draw the mask with fillpolygon
+                m = mask[i].xy
 
-            cv2.fillPoly(frame, np.int32([m]), (0, 0, 255))
-        # save the image with detections
-        cv2.imwrite('data/detected_image_0.jpg', frame)
-    else:
-        print(f"Output: {result.shape}")
-        pred = non_max_suppression(result, conf_thres=0.5, iou_thres=0.65)
-        det = pred[0]
-        print(f"Processed : \n{len(det)} detections, shape: {det.shape}")
+                cv2.fillPoly(frame, np.int32([m]), (0, 0, 255))
+            # save the image with detections
+            cv2.imwrite('data/detected_image_0.jpg', frame)
+        else:
+            print(f"Output: {result.shape}")
+            pred = non_max_suppression(result, conf_thres=0.5, iou_thres=0.65)
+            det = pred[0]
+            print(f"Processed : \n{len(det)} detections, shape: {det.shape}")
 
-    # print(test_inference())
+        # print(test_inference())
